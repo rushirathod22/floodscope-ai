@@ -90,6 +90,7 @@ export function App() {
         onOpenReport={() => setIsReportOpen(true)}
         onOpenProvenance={() => setIsProvenanceOpen(true)}
         areaName={analysisStatus?.area_name || 'Nepal Rasuwa District'}
+        dataSourceMode={analysisStatus?.data_source_mode || 'synthetic_demo'}
       />
 
       {/* Main Content Area */}

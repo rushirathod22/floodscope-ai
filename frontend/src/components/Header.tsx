@@ -7,6 +7,7 @@ interface HeaderProps {
   onOpenReport: () => void;
   onOpenProvenance: () => void;
   areaName: string;
+  dataSourceMode?: string;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -15,6 +16,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenReport,
   onOpenProvenance,
   areaName,
+  dataSourceMode = 'synthetic_demo',
 }) => {
   return (
     <header className="bg-slate-900 border-b border-slate-800 px-6 py-3.5 flex flex-wrap items-center justify-between gap-4 select-none">
@@ -30,6 +32,15 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="px-2 py-0.5 text-[10px] font-semibold bg-cyan-950 text-cyan-400 border border-cyan-800 rounded-full">
               SATELLITE INTEL v1.0
             </span>
+            {dataSourceMode === 'synthetic_demo' ? (
+              <span className="px-2 py-0.5 text-[10px] font-semibold bg-amber-950/80 text-amber-300 border border-amber-800 rounded-full">
+                ⚠️ SYNTHETIC BENCHMARK
+              </span>
+            ) : (
+              <span className="px-2 py-0.5 text-[10px] font-semibold bg-emerald-950/80 text-emerald-300 border border-emerald-800 rounded-full">
+                🛰️ REAL SATELLITE DATA
+              </span>
+            )}
           </div>
           <p className="text-xs text-slate-400">
             Automated Sentinel-1 SAR Flood Detection & Rescue Connectivity Intelligence

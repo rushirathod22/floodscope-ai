@@ -3,11 +3,11 @@
 "name": "osm_settlements_pre_event",
 "crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
 "features": [
-{ "type": "Feature", "properties": { "id": "set_syabrubesi", "name": "Syabru Besi", "population": 1850, "place": "town" }, "geometry": { "type": "Point", "coordinates": [ 85.367498342555152, 28.153965517241378 ] } },
-{ "type": "Feature", "properties": { "id": "set_timure", "name": "Timure", "population": 1200, "place": "village" }, "geometry": { "type": "Point", "coordinates": [ 85.35543183169446, 28.185344827586206 ] } },
-{ "type": "Feature", "properties": { "id": "set_briddhim", "name": "Briddhim", "population": 420, "place": "village" }, "geometry": { "type": "Point", "coordinates": [ 85.33, 28.15 ] } },
-{ "type": "Feature", "properties": { "id": "set_thuman", "name": "Thuman", "population": 650, "place": "village" }, "geometry": { "type": "Point", "coordinates": [ 85.385, 28.165 ] } },
-{ "type": "Feature", "properties": { "id": "set_khangjim", "name": "Khangjim", "population": 310, "place": "isolated_dwelling" }, "geometry": { "type": "Point", "coordinates": [ 85.328, 28.18 ] } },
-{ "type": "Feature", "properties": { "id": "set_lingling", "name": "Lingling", "population": 540, "place": "village" }, "geometry": { "type": "Point", "coordinates": [ 85.350498342555156, 28.153965517241378 ] } }
+{ "type": "Feature", "properties": { "id": "set_syabrubesi", "name": "Syabru Besi", "population": 1850, "place": "town", "data_provenance": "SYNTHETIC_BENCHMARK" }, "geometry": { "type": "Point", "coordinates": [ 85.3675, 28.15397 ] } },
+{ "type": "Feature", "properties": { "id": "set_timure", "name": "Timure", "population": 1200, "place": "village", "data_provenance": "SYNTHETIC_BENCHMARK" }, "geometry": { "type": "Point", "coordinates": [ 85.35543, 28.18534 ] } },
+{ "type": "Feature", "properties": { "id": "set_briddhim", "name": "Briddhim", "population": 420, "place": "village", "data_provenance": "SYNTHETIC_BENCHMARK" }, "geometry": { "type": "Point", "coordinates": [ 85.33, 28.15 ] } },
+{ "type": "Feature", "properties": { "id": "set_thuman", "name": "Thuman", "population": 650, "place": "village", "data_provenance": "SYNTHETIC_BENCHMARK" }, "geometry": { "type": "Point", "coordinates": [ 85.385, 28.165 ] } },
+{ "type": "Feature", "properties": { "id": "set_khangjim", "name": "Khangjim", "population": 310, "place": "isolated_dwelling", "data_provenance": "SYNTHETIC_BENCHMARK" }, "geometry": { "type": "Point", "coordinates": [ 85.328, 28.18 ] } },
+{ "type": "Feature", "properties": { "id": "set_lingling", "name": "Lingling", "population": 540, "place": "village", "data_provenance": "SYNTHETIC_BENCHMARK" }, "geometry": { "type": "Point", "coordinates": [ 85.3505, 28.15397 ] } }
 ]
 }

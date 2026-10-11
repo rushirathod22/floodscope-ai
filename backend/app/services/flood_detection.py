@@ -3,8 +3,9 @@ FloodScope AI - Flood Detection Service
 Implements UN-SPIDER radar-based flood mapping methodology:
 - SAR Backscatter Binarization (Otsu & Minimum thresholding)
 - Pre/Post event change detection
-- Morphological noise removal
-- Vector polygon extraction and GeoTIFF georeferencing
+- Multi-dataset nodata mask propagation
+- Permanent water and terrain slope masking
+- Georeferenced vector polygon extraction and GeoTIFF export
 """
 
 import numpy as np
@@ -21,17 +22,19 @@ import json
 
 from .satellite import lee_speckle_filter, apply_masks
 
-def compute_unspider_threshold(band_data: np.ndarray) -> float:
+def compute_unspider_threshold(band_data: np.ndarray, valid_mask: Optional[np.ndarray] = None) -> float:
     """
     Computes SAR binarization threshold following UN-SPIDER Recommended Practice:
-    Calculates Otsu and Minimum thresholds, selecting the optimal cutoff
-    to separate specular water reflections from rough ground surfaces.
+    Calculates Otsu and Minimum thresholds on valid radar backscatter pixels.
     """
-    flat = band_data.flatten()
-    valid_pixels = flat[np.isfinite(flat)]
+    if valid_mask is not None:
+        valid_pixels = band_data[valid_mask & np.isfinite(band_data)]
+    else:
+        flat = band_data.flatten()
+        valid_pixels = flat[np.isfinite(flat)]
     
     if len(valid_pixels) == 0:
-        return -16.0  # Default standard empirical threshold for S1 VH
+        return -16.0  # Standard empirical baseline for S1 VH cross-pol
         
     try:
         t_otsu = skimage.filters.threshold_otsu(valid_pixels)
@@ -43,7 +46,7 @@ def compute_unspider_threshold(band_data: np.ndarray) -> float:
     except Exception:
         t_min = t_otsu
 
-    # If minimum threshold is valid and has sufficient separation, use hybrid check
+    # If minimum threshold is within reasonable physical separation, use optimal cutoff
     if np.isfinite(t_min) and abs(t_min - t_otsu) < 8.0:
         return float(min(t_otsu, t_min))
     return float(t_otsu)
@@ -56,50 +59,69 @@ def detect_flood_extent(
     dem: Optional[np.ndarray] = None,
     perm_water: Optional[np.ndarray] = None,
     slope_cutoff: float = 15.0,
-    min_pixel_cluster: int = 5
+    min_pixel_cluster: int = 5,
+    pre_nodata: Optional[float] = -99.0,
+    post_nodata: Optional[float] = -99.0,
+    dem_nodata: Optional[float] = -9999.0
 ) -> Tuple[np.ndarray, gpd.GeoDataFrame, Dict[str, float]]:
     """
     Executes full Sentinel-1 change detection and binarization pipeline:
-    1. Speckle reduction using Lee filter
-    2. Change backscatter calculation (delta_dB = post - pre)
-    3. Threshold calculation
-    4. Permanent water and terrain slope masking
-    5. Small-cluster morphological filtering
-    6. Vectorization to georeferenced GeoPandas GeoDataFrame
+    1. Propagates unified nodata validity mask across Pre, Post, and DEM.
+    2. Speckle reduction using enhanced Lee filter.
+    3. Change backscatter calculation (delta_dB = post - pre).
+    4. Threshold calculation (UN-SPIDER hybrid).
+    5. Permanent water and terrain slope masking.
+    6. Small-cluster morphological filtering.
+    7. Vectorization to georeferenced GeoPandas GeoDataFrame.
+    8. Rigorous metric surface area calculation on valid pixels.
     """
-    # 1. Speckle filtering
-    pre_clean = lee_speckle_filter(pre_s1_db, size=5)
-    post_clean = lee_speckle_filter(post_s1_db, size=5)
+    # 1. Combine nodata validity masks
+    valid_data_mask = np.isfinite(pre_s1_db) & np.isfinite(post_s1_db)
+    if pre_nodata is not None:
+        valid_data_mask &= (pre_s1_db != pre_nodata)
+    if post_nodata is not None:
+        valid_data_mask &= (post_s1_db != post_nodata)
+    if dem is not None and dem_nodata is not None:
+        valid_data_mask &= (np.isfinite(dem) & (dem != dem_nodata) & (dem > -500.0))
+
+    # 2. Speckle filtering on valid data
+    pre_clean = lee_speckle_filter(pre_s1_db, size=5, nodata=pre_nodata)
+    post_clean = lee_speckle_filter(post_s1_db, size=5, nodata=post_nodata)
     
-    # 2. Backscatter change (water causes significant specular drop)
-    delta_db = post_clean - pre_clean
+    # 3. Backscatter change (specular water causes distinct negative dB drop)
+    delta_db = np.zeros_like(post_clean)
+    delta_db[valid_data_mask] = post_clean[valid_data_mask] - pre_clean[valid_data_mask]
     
-    # 3. UN-SPIDER threshold on post-event
-    threshold_db = compute_unspider_threshold(post_clean)
+    # 4. UN-SPIDER threshold on post-event
+    threshold_db = compute_unspider_threshold(post_clean, valid_mask=valid_data_mask)
     
-    # Candidate flood:
-    # Post backscatter is below water threshold OR shows significant drop (e.g. <= -3.0 dB) with low post value
-    water_post = post_clean < threshold_db
-    significant_drop = (delta_db < -3.0) & (post_clean < (threshold_db + 2.0))
+    # Candidate flood condition:
+    # Post backscatter is below water threshold OR shows significant drop (<= -3.0 dB) with low post value
+    water_post = (post_clean < threshold_db) & valid_data_mask
+    significant_drop = (delta_db < -3.0) & (post_clean < (threshold_db + 2.0)) & valid_data_mask
     candidate_flood = (water_post | significant_drop).astype(np.uint8)
     
-    # 4. Apply terrain slope and permanent water masks
+    # 5. Apply terrain slope, permanent water, and nodata validity masks
     filtered_flood = apply_masks(
         candidate_flood, 
         dem=dem, 
         permanent_water=perm_water, 
-        slope_threshold_deg=slope_cutoff
+        slope_threshold_deg=slope_cutoff,
+        transform=transform,
+        crs=crs,
+        valid_data_mask=valid_data_mask
     )
     
-    # 5. Morphological cleanup - remove 1-2 pixel isolated false positives
+    # 6. Morphological cleanup - remove 1-2 pixel isolated false positives
     structure = ndimage.generate_binary_structure(2, 2)
     labeled, num_features = ndimage.label(filtered_flood, structure=structure)
     feature_sizes = np.bincount(labeled.ravel())
     mask_sizes = feature_sizes >= min_pixel_cluster
     mask_sizes[0] = 0  # ignore background
     cleaned_flood = mask_sizes[labeled].astype(np.uint8)
+    cleaned_flood[~valid_data_mask] = 0
     
-    # 6. Vectorize to GeoDataFrame
+    # 7. Vectorize to GeoDataFrame
     shapes_gen = shapes(cleaned_flood, mask=(cleaned_flood == 1), transform=transform)
     geometries = []
     
@@ -128,22 +150,19 @@ def detect_flood_extent(
     else:
         gdf = gpd.GeoDataFrame(columns=["geometry", "classification", "confidence", "detection_method"], crs=crs)
 
-    # Calculate statistics
-    pixel_width = abs(transform.a)
-    pixel_height = abs(transform.e)
-    # Approx pixel area in meters (or degrees to meters if 4326, at ~28 deg lat 1 deg lat ~ 111km, 1 deg lon ~ 98km)
-    if crs == "EPSG:4326":
-        # Rough meters per degree around Nepal latitude 28°N
-        m_per_deg_lat = 111000.0
-        m_per_deg_lon = 98000.0
-        pixel_area_sq_m = (pixel_width * m_per_deg_lon) * (pixel_height * m_per_deg_lat)
+    # 8. Accurate surface area calculation
+    if "4326" in crs or abs(transform.a) < 1.0:
+        center_lat = transform.f + (pre_s1_db.shape[0] / 2.0) * transform.e
+        m_per_deg_lat = 111320.0
+        m_per_deg_lon = 111320.0 * np.cos(np.radians(center_lat))
+        pixel_area_sq_m = (abs(transform.a) * m_per_deg_lon) * (abs(transform.e) * m_per_deg_lat)
     else:
-        pixel_area_sq_m = pixel_width * pixel_height
+        pixel_area_sq_m = abs(transform.a) * abs(transform.e)
 
-    total_pixels = cleaned_flood.size
-    flood_pixels = int(np.sum(cleaned_flood))
+    total_valid_pixels = int(np.sum(valid_data_mask))
+    flood_pixels = int(np.sum(cleaned_flood == 1))
     
-    total_area_sq_km = (total_pixels * pixel_area_sq_m) / 1_000_000.0
+    total_area_sq_km = (total_valid_pixels * pixel_area_sq_m) / 1_000_000.0
     flood_area_sq_km = (flood_pixels * pixel_area_sq_m) / 1_000_000.0
     flood_hectares = flood_area_sq_km * 100.0
     
@@ -152,6 +171,7 @@ def detect_flood_extent(
         "candidate_flood_area_sq_km": round(flood_area_sq_km, 2),
         "candidate_flood_area_hectares": round(flood_hectares, 1),
         "flood_pixel_count": flood_pixels,
+        "valid_pixel_count": total_valid_pixels,
         "binarization_threshold_db": round(threshold_db, 2)
     }
     

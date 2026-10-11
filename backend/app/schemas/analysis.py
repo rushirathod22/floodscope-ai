@@ -50,6 +50,7 @@ class FloodExtentSummary(BaseModel):
     orbit_track: int
     permanent_water_masked: bool
     steep_slopes_masked: bool
+    data_source_mode: str = Field(default="synthetic_demo", description="'synthetic_demo' or 'real_copernicus'")
 
 class AnalysisStatus(BaseModel):
     analysis_id: str
@@ -57,6 +58,7 @@ class AnalysisStatus(BaseModel):
     created_at: datetime
     completed_at: Optional[datetime] = None
     area_name: str
+    data_source_mode: str = Field(default="synthetic_demo", description="'synthetic_demo' or 'real_copernicus'")
     summary: Optional[FloodExtentSummary] = None
     infrastructure: Optional[InfrastructureStats] = None
     accessibility: Optional[AccessibilityResults] = None

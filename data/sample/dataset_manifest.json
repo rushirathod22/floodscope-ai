@@ -1,0 +1,8 @@
+{
+  "dataset_type": "SYNTHETIC_BENCHMARK_DEMO",
+  "study_area": "Nepal Rasuwa District (Bhote Koshi / Trishuli Corridor)",
+  "purpose": "Local reproducibility and algorithmic pipeline testing without Copernicus download latency",
+  "random_seed": 42,
+  "crs": "EPSG:4326",
+  "permanent_water_included": true
+}

@@ -1,67 +1,97 @@
 """
 FloodScope AI - Accessibility Analysis Service
-Uses NetworkX to build a road network graph, calculate connectivity between settlements
-and critical hub facilities (hospitals/town centers), and determine isolated/disconnected communities
-under candidate road disruption assumptions.
+Uses NetworkX to build a topological road network graph from all baseline roads,
+detects candidate disruptions from flood polygon intersections, and computes
+exact shortest-path reachability from settlements to emergency clinics and hospitals.
 """
 
 import networkx as nx
 import geopandas as gpd
 from shapely.geometry import Point, LineString
+from shapely.ops import unary_union, linemerge
 from typing import Dict, Any, List, Tuple
 import os
 
-def build_road_graph(roads_gdf: gpd.GeoDataFrame) -> Tuple[nx.Graph, Dict[str, Tuple[float, float]]]:
+def build_topological_road_network(
+    all_roads_gdf: gpd.GeoDataFrame,
+    flood_gdf: gpd.GeoDataFrame,
+    metric_crs: str = "EPSG:32645"
+) -> Tuple[nx.Graph, nx.Graph, Dict[str, Tuple[float, float]], int]:
     """
-    Constructs a NetworkX graph from a GeoDataFrame of road LineStrings:
-    - Endpoints / intersections of road segments become graph nodes.
-    - Road segments become weighted edges (length in meters).
+    Constructs a true topological NetworkX graph from the FULL baseline road network:
+    1. Converts all roads to metric CRS (UTM EPSG:32645) for true Euclidean distance weights.
+    2. Segments each road LineString between consecutive vertices so junctions and forks
+       naturally connect at shared coordinate nodes.
+    3. Identifies candidate disrupted segments where a segment intersects the candidate flood extent.
+    4. Generates:
+       - G_pre: Full pre-event road network.
+       - G_post: Post-event network with candidate disrupted road edges removed.
     """
-    G = nx.Graph()
-    node_coords = {}
+    roads_metric = all_roads_gdf.to_crs(metric_crs) if all_roads_gdf.crs != metric_crs else all_roads_gdf
     
-    # Ensure metric coordinates for accurate Euclidean weights
-    roads_metric = roads_gdf.to_crs("EPSG:32645") if roads_gdf.crs != "EPSG:32645" else roads_gdf
+    flood_union = None
+    if flood_gdf is not None and not flood_gdf.empty:
+        flood_metric = flood_gdf.to_crs(metric_crs) if flood_gdf.crs != metric_crs else flood_gdf
+        flood_union = flood_metric.union_all() if hasattr(flood_metric, "union_all") else flood_metric.unary_union
+
+    G_pre = nx.Graph()
+    node_coords = {}
+    disrupted_edge_count = 0
 
     for idx, row in roads_metric.iterrows():
         geom = row.geometry
         if geom is None or geom.is_empty:
             continue
             
-        # If MultiLineString, extract lines
         lines = geom.geoms if hasattr(geom, "geoms") else [geom]
         for line in lines:
             coords = list(line.coords)
             if len(coords) < 2:
                 continue
                 
-            u_coord = (round(coords[0][0], 1), round(coords[0][1], 1))
-            v_coord = (round(coords[-1][0], 1), round(coords[-1][1], 1))
-            
-            u_id = f"node_{u_coord[0]}_{u_coord[1]}"
-            v_id = f"node_{v_coord[0]}_{v_coord[1]}"
-            
-            node_coords[u_id] = u_coord
-            node_coords[v_id] = v_coord
-            
-            edge_length_m = line.length
-            road_id = row.get("id", f"road_{idx}")
-            is_disrupted = row.get("status") == "potentially_affected"
-            
-            G.add_edge(
-                u_id, 
-                v_id, 
-                weight=edge_length_m, 
-                road_id=road_id,
-                disrupted=is_disrupted,
-                geometry=line
-            )
-            
-    return G, node_coords
+            # Iterate through consecutive vertices to ensure intermediate junctions connect
+            for i in range(len(coords) - 1):
+                p1 = coords[i]
+                p2 = coords[i + 1]
+                
+                u_coord = (round(p1[0], 1), round(p1[1], 1))
+                v_coord = (round(p2[0], 1), round(p2[1], 1))
+                
+                u_id = f"node_{u_coord[0]}_{u_coord[1]}"
+                v_id = f"node_{v_coord[0]}_{v_coord[1]}"
+                
+                node_coords[u_id] = u_coord
+                node_coords[v_id] = v_coord
+                
+                segment = LineString([p1, p2])
+                seg_length_m = segment.length
+                
+                # Check if segment intersects candidate flood extent
+                is_disrupted = False
+                if flood_union is not None and segment.intersects(flood_union):
+                    is_disrupted = True
+                    disrupted_edge_count += 1
+                    
+                G_pre.add_edge(
+                    u_id,
+                    v_id,
+                    weight=seg_length_m,
+                    road_id=row.get("id", f"road_{idx}"),
+                    disrupted=is_disrupted
+                )
+
+    # Post-event graph with candidate disrupted segments removed
+    G_post = G_pre.copy()
+    disrupted_edges = [
+        (u, v) for u, v, data in G_post.edges(data=True) if data.get("disrupted", False)
+    ]
+    G_post.remove_edges_from(disrupted_edges)
+
+    return G_pre, G_post, node_coords, len(disrupted_edges)
 
 def find_nearest_graph_node(point_metric: Point, node_coords: Dict[str, Tuple[float, float]]) -> Tuple[str, float]:
     """
-    Finds the closest node on the road graph for a given POI (settlement or hospital).
+    Finds the closest node on the road graph for a given POI (settlement centroid or hospital).
     """
     best_node = None
     min_dist = float("inf")
@@ -76,40 +106,42 @@ def find_nearest_graph_node(point_metric: Point, node_coords: Dict[str, Tuple[fl
     return best_node, min_dist
 
 def analyze_accessibility(
-    roads_gdf: gpd.GeoDataFrame,
+    all_roads_gdf: gpd.GeoDataFrame,
+    flood_gdf: gpd.GeoDataFrame,
     settlements_gdf: gpd.GeoDataFrame,
-    facilities_gdf: gpd.GeoDataFrame  # Hospitals, emergency coordination centers, key towns
+    facilities_gdf: gpd.GeoDataFrame,
+    metric_crs: str = "EPSG:32645"
 ) -> Tuple[gpd.GeoDataFrame, Dict[str, Any]]:
     """
-    Simulates pre-event vs post-event connectivity:
-    1. Builds full pre-event road network graph.
-    2. Builds post-event graph by removing candidate disrupted edges (flooded road segments).
-    3. Evaluates shortest path reachability to the nearest critical facility.
-    4. Labels settlements as accessible or candidate_disconnected.
+    Calculates pre-event vs post-event network reachability:
+    1. Builds full pre-event graph G_pre from ALL baseline roads.
+    2. Builds post-event graph G_post with flooded edges severed.
+    3. Checks whether each settlement can reach at least one emergency medical/hub facility.
+    4. Categorizes settlements as:
+       - 'accessible': Connected in post-event scenario.
+       - 'candidate_disconnected': Connected prior to event, but severed by flood.
+       - 'unreachable_prior': Isolated even before flood in baseline data.
     """
-    if roads_gdf.empty or settlements_gdf.empty:
+    if all_roads_gdf.empty or settlements_gdf.empty:
         return settlements_gdf, {
             "total_settlements": len(settlements_gdf),
             "disconnected_settlements_count": 0,
             "accessible_settlements_count": len(settlements_gdf),
             "disconnected_details": [],
             "disrupted_edge_count": 0,
-            "methodology": "No network data available."
+            "methodology": "No network baseline data available."
         }
 
-    # Step 1: Build full graph
-    G_pre, node_coords = build_road_graph(roads_gdf)
-    
-    # Step 2: Build post-event graph by filtering out disrupted edges
-    G_post = G_pre.copy()
-    disrupted_edges = [
-        (u, v) for u, v, data in G_post.edges(data=True) if data.get("disrupted", False)
-    ]
-    G_post.remove_edges_from(disrupted_edges)
+    # Step 1 & 2: Build topological graphs from all baseline roads
+    G_pre, G_post, node_coords, disrupted_edge_count = build_topological_road_network(
+        all_roads_gdf=all_roads_gdf,
+        flood_gdf=flood_gdf,
+        metric_crs=metric_crs
+    )
 
     # Convert POIs to metric CRS
-    settlements_metric = settlements_gdf.to_crs("EPSG:32645")
-    facilities_metric = facilities_gdf.to_crs("EPSG:32645")
+    settlements_metric = settlements_gdf.to_crs(metric_crs) if settlements_gdf.crs != metric_crs else settlements_gdf
+    facilities_metric = facilities_gdf.to_crs(metric_crs) if facilities_gdf.crs != metric_crs else facilities_gdf
 
     # Map facilities to nearest graph nodes
     facility_nodes = {}
@@ -118,7 +150,6 @@ def analyze_accessibility(
         if node:
             facility_nodes[row.get("name", f"Facility_{idx}")] = node
 
-    results = []
     settlement_details = []
     
     for idx, row in settlements_metric.iterrows():
@@ -131,28 +162,28 @@ def analyze_accessibility(
         min_pre_dist = float("inf")
         nearest_fac_name = "None"
         
-        for fac_name, fac_node in facility_nodes.items():
-            if nx.has_path(G_pre, st_node, fac_node):
-                pre_reachable = True
-                path_len = nx.shortest_path_length(G_pre, st_node, fac_node, weight="weight")
-                if path_len < min_pre_dist:
-                    min_pre_dist = path_len
-                    nearest_fac_name = fac_name
-                    
-        # Post-event reachability (with candidate disrupted links removed)
+        if st_node in G_pre:
+            for fac_name, fac_node in facility_nodes.items():
+                if fac_node in G_pre and nx.has_path(G_pre, st_node, fac_node):
+                    pre_reachable = True
+                    path_len = nx.shortest_path_length(G_pre, st_node, fac_node, weight="weight")
+                    if path_len < min_pre_dist:
+                        min_pre_dist = path_len
+                        nearest_fac_name = fac_name
+                        
+        # Post-event reachability (with flooded road links removed)
         post_reachable = False
         min_post_dist = float("inf")
-        if pre_reachable:
+        if pre_reachable and st_node in G_post:
             for fac_name, fac_node in facility_nodes.items():
-                if nx.has_path(G_post, st_node, fac_node):
+                if fac_node in G_post and nx.has_path(G_post, st_node, fac_node):
                     post_reachable = True
                     path_len = nx.shortest_path_length(G_post, st_node, fac_node, weight="weight")
                     if path_len < min_post_dist:
                         min_post_dist = path_len
 
-        # Candidate disconnected if reachable before, but unreachable after disruption
+        # Candidate disconnected condition
         is_isolated = pre_reachable and not post_reachable
-        
         status_label = "candidate_disconnected" if is_isolated else ("accessible" if post_reachable else "unreachable_prior")
         
         settlement_details.append({
@@ -182,10 +213,11 @@ def analyze_accessibility(
         "disconnected_settlements_count": disconnected_count,
         "accessible_settlements_count": accessible_count,
         "disconnected_details": settlement_details,
-        "disrupted_edge_count": len(disrupted_edges),
+        "disrupted_edge_count": disrupted_edge_count,
         "methodology": (
-            "NetworkX shortest-path graph connectivity from settlement centroids to nearest emergency "
-            "facilities/town centers. Candidate road segments intersecting flood extent are removed as edge disruptions."
+            "NetworkX topological graph model built from full baseline road network. "
+            "Candidate road segments intersecting detected flood extent removed as edge disruptions. "
+            "Reachability measured to nearest emergency facility before vs. after candidate disruption."
         )
     }
 

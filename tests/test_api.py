@@ -65,7 +65,19 @@ def test_api_endpoints():
         assert res_down.status_code == 200
         assert "text/markdown" in res_down.headers["content-type"]
 
-        print("All API endpoints tested and passed!")
+        # 9. Test Sentinel-1 12-day orbit validation rejection
+        bad_payload = {
+            "area_id": "nepal_rasuwa",
+            "pre_event_date": "2024-08-14",
+            "post_event_date": "2024-08-19",
+            "relative_orbit": 121,
+            "polarization": "VH"
+        }
+        res_bad = client.post("/api/analysis/run", json=bad_payload)
+        assert res_bad.status_code == 400
+        assert "Sentinel-1 Validation Error" in res_bad.json()["detail"]
+
+        print("All API endpoints and validation constraints tested and passed!")
 
 if __name__ == "__main__":
     test_api_endpoints()

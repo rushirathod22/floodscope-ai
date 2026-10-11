@@ -83,7 +83,8 @@ def test_full_pipeline():
     facilities_gdf = gpd.read_file(os.path.join(sample_dir, "osm_facilities_pre_event.geojson"))
 
     access_gdf, access_stats = analyze_accessibility(
-        roads_gdf=aff_roads,
+        all_roads_gdf=roads_gdf,
+        flood_gdf=flood_gdf,
         settlements_gdf=settlements_gdf,
         facilities_gdf=facilities_gdf
     )

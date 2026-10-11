@@ -19,6 +19,7 @@ export interface FloodExtentSummary {
   orbit_track: number;
   permanent_water_masked: boolean;
   steep_slopes_masked: boolean;
+  data_source_mode?: string;
 }
 
 export interface InfrastructureStats {
@@ -58,6 +59,7 @@ export interface AnalysisStatus {
   created_at: string;
   completed_at?: string;
   area_name: string;
+  data_source_mode?: string;
   summary: FloodExtentSummary;
   infrastructure: InfrastructureStats;
   accessibility: AccessibilityResults;

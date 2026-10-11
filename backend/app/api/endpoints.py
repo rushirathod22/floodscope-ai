@@ -22,6 +22,7 @@ from backend.app.schemas.analysis import (
     ReportGenerateRequest,
     ReportResponse
 )
+from backend.app.services.satellite import validate_sentinel1_pair
 from backend.app.services.flood_detection import detect_flood_extent, export_flood_geotiff, export_flood_geojson
 from backend.app.services.infrastructure import analyze_infrastructure, export_infrastructure_geojson
 from backend.app.services.accessibility import analyze_accessibility, export_accessibility_geojson
@@ -50,12 +51,27 @@ def get_health():
 @router.post("/analysis/run", response_model=AnalysisStatus)
 def run_analysis(request: AnalysisRequest):
     """Start flood analysis for a selected area and date pair."""
+    # 0. Enforce Sentinel-1 Scene Metadata & Timing Validation
+    try:
+        pre_date = datetime.strptime(request.pre_event_date, "%Y-%m-%d")
+        post_date = datetime.strptime(request.post_event_date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Dates must be YYYY-MM-DD.")
+
+    is_valid, validation_err = validate_sentinel1_pair(
+        {"orbit_pass": request.orbit_pass, "relative_orbit": request.relative_orbit, "date": pre_date},
+        {"orbit_pass": request.orbit_pass, "relative_orbit": request.relative_orbit, "date": post_date}
+    )
+    if not is_valid:
+        raise HTTPException(status_code=400, detail=f"Sentinel-1 Validation Error: {validation_err}")
+
     analysis_id = f"fs_{uuid.uuid4().hex[:8]}"
     created_at = datetime.utcnow()
     
     pre_path = os.path.join(SAMPLE_DIR, "s1_pre_20240814_vh.tif")
     post_path = os.path.join(SAMPLE_DIR, "s1_post_20240826_vh.tif")
     dem_path = os.path.join(SAMPLE_DIR, "copernicus_dem_rasuwa.tif")
+    perm_path = os.path.join(SAMPLE_DIR, "permanent_water_mask.tif")
 
     if not os.path.exists(post_path):
         raise HTTPException(status_code=500, detail="Sample satellite rasters not initialized.")
@@ -68,12 +84,19 @@ def run_analysis(request: AnalysisRequest):
         transform = src_post.transform
         crs = src_post.crs.to_string() if src_post.crs else "EPSG:4326"
 
+    # Connect permanent water mask
+    perm_water_data = None
+    if os.path.exists(perm_path):
+        with rasterio.open(perm_path) as src_perm:
+            perm_water_data = src_perm.read(1)
+
     cleaned_flood, flood_gdf, flood_stats = detect_flood_extent(
         pre_s1_db=pre_data,
         post_s1_db=post_data,
         transform=transform,
         crs=crs,
         dem=dem_data,
+        perm_water=perm_water_data,
         slope_cutoff=request.dem_slope_cutoff_deg
     )
 
@@ -89,12 +112,13 @@ def run_analysis(request: AnalysisRequest):
         osm_bridges_gdf=bridges_gdf
     )
 
-    # 3. Accessibility & Graph Analysis
+    # 3. Accessibility & Graph Analysis using FULL baseline roads
     settlements_gdf = gpd.read_file(os.path.join(SAMPLE_DIR, "osm_settlements_pre_event.geojson"))
     facilities_gdf = gpd.read_file(os.path.join(SAMPLE_DIR, "osm_facilities_pre_event.geojson"))
 
     access_gdf, access_stats = analyze_accessibility(
-        roads_gdf=aff_roads,
+        all_roads_gdf=roads_gdf,
+        flood_gdf=flood_gdf,
         settlements_gdf=settlements_gdf,
         facilities_gdf=facilities_gdf
     )
@@ -112,11 +136,12 @@ def run_analysis(request: AnalysisRequest):
         candidate_flood_area_sq_km=flood_stats["candidate_flood_area_sq_km"],
         candidate_flood_area_hectares=flood_stats["candidate_flood_area_hectares"],
         sensor="Sentinel-1 C-Band SAR (IW Mode, VH polarization)",
-        pre_event_scene="S1A_IW_GRDH_1SDV_20240814T121540",
-        post_event_scene="S1A_IW_GRDH_1SDV_20240826T121540",
+        pre_event_scene="S1A_IW_GRDH_1SDV_20240814T121540 (Benchmark)",
+        post_event_scene="S1A_IW_GRDH_1SDV_20240826T121540 (Benchmark)",
         orbit_track=request.relative_orbit,
-        permanent_water_masked=True,
-        steep_slopes_masked=True
+        permanent_water_masked=bool(perm_water_data is not None),
+        steep_slopes_masked=True,
+        data_source_mode="synthetic_demo"
     )
 
     infra = InfrastructureStats(**infra_stats)
@@ -127,7 +152,8 @@ def run_analysis(request: AnalysisRequest):
         status="completed",
         created_at=created_at,
         completed_at=datetime.utcnow(),
-        area_name="Nepal Rasuwa District (Bhote Koshi / Trishuli Corridor)",
+        area_name="Nepal Rasuwa District (Synthetic Benchmark Demo)",
+        data_source_mode="synthetic_demo",
         summary=summary,
         infrastructure=infra,
         accessibility=access
@@ -227,6 +253,7 @@ def generate_report(req: ReportGenerateRequest):
     metrics_bundle = {
         "analysis_id": analysis_id,
         "area_name": sess.area_name,
+        "data_source_mode": sess.data_source_mode,
         "summary": sess.summary.model_dump(),
         "infrastructure": sess.infrastructure.model_dump(),
         "accessibility": sess.accessibility.model_dump()
