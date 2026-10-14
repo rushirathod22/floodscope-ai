@@ -55,47 +55,106 @@ Ground commanders cannot wait days for physical reconnaissance. They need instan
 
 FloodScope AI connects satellite telemetry, terrain models, and topological graphs into a responsive, real-time humanitarian cockpit:
 
+```mermaid
+flowchart TD
+    %% Styling
+    classDef input fill:#1e293b,stroke:#3b82f6,stroke-width:2px,color:#f8fafc;
+    classDef process fill:#0f172a,stroke:#06b6d4,stroke-width:2px,color:#f8fafc;
+    classDef graph fill:#0f172a,stroke:#f59e0b,stroke-width:2px,color:#f8fafc;
+    classDef ai fill:#0f172a,stroke:#a855f7,stroke-width:2px,color:#f8fafc;
+    classDef ui fill:#0f172a,stroke:#10b981,stroke-width:2px,color:#f8fafc;
+
+    subgraph Inputs ["📡 1. Open Space & Ground Data Sources"]
+        S1["Copernicus Sentinel-1 SAR<br/>(Track 121, 12-Day Repeat, VH)"]:::input
+        DEM["Copernicus Global DEM 30m<br/>(Airbus WorldDEM GLO-30)"]:::input
+        OSM["OpenStreetMap Pre-Event Baseline<br/>(Locked July 2026 Snapshot)"]:::input
+    end
+
+    subgraph GeoEngine ["🛰️ 2. Geospatial Processing & Physics Engine (FastAPI)"]
+        S1 -->|"Pre & Post GRD"| LEE["Enhanced Lee Filter (7x7)<br/>Speckle Noise Damping"]:::process
+        LEE --> LOG["Log-Ratio Differencing<br/>Δσ° = σ°_post - σ°_pre"]:::process
+        DEM -->|"Metric Gradient"| SLOPE["Metric DEM Slope Mask<br/>Rejects Slopes > 15°"]:::process
+        LOG --> HYBRID["Hybrid Binarization<br/>(Otsu + Minimum Threshold)"]:::process
+        SLOPE --> MASK["Terrain Shadow & Permanent<br/>Waterbody Elimination"]:::process
+        HYBRID --> MASK
+        MASK --> FLOOD["Candidate Flood Extent<br/>(GeoTIFF & GeoJSON Polygons)"]:::process
+    end
+
+    subgraph NetworkEngine ["🕸️ 3. Topological Graph & Exposure Engine (NetworkX)"]
+        OSM -->|"Buildings, Roads, Bridges"| INTER["Spatial Overlay Engine<br/>Candidate Disruption Intersect"]:::graph
+        FLOOD --> INTER
+        INTER -->|"Exposed Infrastructure"| EXP["18 Buildings • 8.4 km Roads • 2 Bridges"]:::graph
+        
+        OSM -->|"Baseline Road Network"| NX["Directed NetworkX Road Graph G(V,E)"]:::graph
+        FLOOD -->|"Sever Inundated Edges"| PRUNE["Pruned Graph G'(V, E')"]:::graph
+        NX --> PRUNE
+        PRUNE --> DIJK["Dijkstra Reachability to Clinics<br/>(Dhunche Hospital & Syabru Post)"]:::graph
+        DIJK --> ISOLATED["Candidate Disconnected Towns<br/>(Timure & Briddhim Flagged)"]:::graph
+    end
+
+    subgraph AIEngine ["🤖 4. Zero-Hallucination Bilingual AI Copilot"]
+        EXP --> METRICS["Deterministic Metrics Bundle<br/>(100% Immutable Verification)"]:::ai
+        ISOLATED --> METRICS
+        FLOOD --> METRICS
+
+        METRICS -->|"Read-Only Payload"| LLM["Google Gemini 2.5 Flash<br/>Humanitarian Operations Copilot"]:::ai
+        LLM -->|"Qualitative Guidance Only"| BILINGUAL["Bilingual Situation Reports<br/>(English & नेपाली Parallel)"]:::ai
+        LLM --> CHAT["Interactive Tactical Rescuer Chat<br/>(Deterministic Grounding Guard)"]:::ai
+    end
+
+    subgraph Frontend ["💻 5. Reactive Tactical Rescuer Cockpit (React 19 + Leaflet)"]
+        FLOOD --> MAP["Dual-Basemap Leaflet<br/>• Cyan Flood Polygon Layer<br/>• Pulsing Isolated Red Markers"]:::ui
+        ISOLATED --> MAP
+        EXP --> STATS["Dynamic Rescuer KPI Cards"]:::ui
+        BILINGUAL --> SITREP["1-Page Printable SitRep View"]:::ui
+        CHAT --> COPILOT_UI["Rescuer Copilot Chat Drawer"]:::ui
+    end
 ```
-                    ┌────────────────────────────────────────────────────────┐
-                    │               PERMITTED SPACE & OPEN DATA              │
-                    │  Sentinel-1 SAR (S1A Track 121) • Copernicus DEM (30m)  │
-                    │         OpenStreetMap Pre-Event Baseline (ohsome)      │
-                    └───────────────────────────┬────────────────────────────┘
-                                                │
-                                                ▼
-┌────────────────────────────────────────────────────────────────────────────────────────────┐
-│                               FASTAPI BACKEND PROCESSING ENGINE                            │
-│                                                                                            │
-│   ┌───────────────────────────┐  ┌───────────────────────────┐  ┌───────────────────────┐  │
-│   │   SAR Inundation Engine   │  │   Exposure Intersector    │  │ Topological Graph (NX)│  │
-│   │ • 12-day orbital matching │  │ • OSM buildings & bridges │  │ • Dijkstra reachability│ │
-│   │ • Enhanced Lee 7x7 filter │  │ • Severed road segments   │  │ • Isolated settlement │  │
-│   │ • DEM slope mask (>15°)   │  │ • Zero post-event bias    │  │   detection           │  │
-│   └─────────────┬─────────────┘  └─────────────┬─────────────┘  └───────────┬───────────┘  │
-│                 │                              │                            │              │
-│                 └──────────────────────┬───────┴────────────────────────────┘              │
-│                                        ▼                                                   │
-│                        ┌───────────────────────────────┐                                   │
-│                        │ Deterministic Metrics Bundle  │                                   │
-│                        │ (100% Immutable Verification) │                                   │
-│                        └───────────────┬───────────────┘                                   │
-│                                        │                                                   │
-│                                        ▼                                                   │
-│                        ┌───────────────────────────────┐                                   │
-│                        │  Bilingual AI Copilot Engine  │                                   │
-│                        │  Google Gemini 2.5 Flash      │                                   │
-│                        │  (Tactical Commentary ONLY)   │                                   │
-│                        └───────────────┬───────────────┘                                   │
-└────────────────────────────────────────┼───────────────────────────────────────────────────┘
-                                         │ REST API / WebSocket
-                                         ▼
-┌────────────────────────────────────────────────────────────────────────────────────────────┐
-│                           REACT 19 + VITE + TAILWIND FRONTEND                              │
-│                                                                                            │
-│   [ Dual-Basemap Leaflet ]   [ Rescuer AI Drawer ]   [ Bilingual SitRep ]  [ Flow Tracer ] │
-│   • Cyan SAR flood footprint • English & Nepali chat • 1-page print view   • D8 DEM descent│
-│   • Pulsing isolated towns   • Grounded prompt chips • GeoJSON / TIF export• Arrival timer │
-└────────────────────────────────────────────────────────────────────────────────────────────┘
+
+### 🔀 Topological Graph Reachability Logic (NetworkX)
+
+```mermaid
+flowchart LR
+    classDef base fill:#1e293b,stroke:#3b82f6,stroke-width:1px,color:#fff;
+    classDef disaster fill:#7f1d1d,stroke:#ef4444,stroke-width:2px,color:#fff;
+    classDef alert fill:#831843,stroke:#ec4899,stroke-width:2px,color:#fff;
+    classDef ok fill:#064e3b,stroke:#10b981,stroke-width:1px,color:#fff;
+
+    R["Baseline OSM Road Graph G(V, E)"]:::base --> S["Flood Extent Overlay"]:::base
+    S --> D{"Road Edge Intersects Flood?"}
+    D -->|Yes| CUT["Sever Edge e: E' = E \\ {e}"]:::disaster
+    D -->|No| KEEP["Keep Active Road Link"]:::ok
+
+    CUT --> G_PRUNED["Post-Disaster Graph G'(V, E')"]:::base
+    KEEP --> G_PRUNED
+    
+    G_PRUNED --> DIJK["Dijkstra Shortest Path d'(Settlement, Clinic)"]:::base
+    DIJK --> REACH{"d'(s, clinic) < ∞ ?"}
+    REACH -->|Yes| CONNECTED["Accessible via Ground Convoy"]:::ok
+    REACH -->|No| ISOLATED["CUT-OFF: Trigger Urgent Rotary Airlift"]:::alert
+```
+
+### 🛡️ Grounding Safeguard: Eliminating LLM Hallucinations
+
+```mermaid
+flowchart TD
+    classDef calc fill:#0c4a6e,stroke:#38bdf8,stroke-width:2px,color:#fff;
+    classDef guard fill:#4c1d95,stroke:#c084fc,stroke-width:2px,color:#fff;
+    classDef danger fill:#450a0a,stroke:#f87171,stroke-width:2px,color:#fff;
+    classDef output fill:#064e3b,stroke:#34d399,stroke-width:2px,color:#fff;
+
+    GEO["Geospatial & Graph Calculations"]:::calc --> DATA["Validated Metrics<br/>• Area: 4.8 km² (480 ha)<br/>• Buildings: 18 exposed<br/>• Roads: 8.4 km severed<br/>• Isolated: Timure, Briddhim"]:::calc
+    
+    DATA --> TIER1["Tier 1: Immutable Markdown Blueprint<br/>(Deterministic Code Rendering)"]:::guard
+    DATA --> TIER2["Tier 2: Read-Only Payload to Gemini 2.5 Flash"]:::guard
+
+    TIER2 --> PROMPT["Constrained System Prompt:<br/>❌ DO NOT invent or alter numbers<br/>✅ Provide airlift & reconnaissance advice"]:::guard
+
+    PROMPT -.-> NO_HALLUCINATION["Guaranteed 0% Metric Drift<br/>(Never invents phantom casualty/damage counts)"]:::danger
+
+    TIER1 --> MERGE["Final SitRep Synthesis"]:::output
+    PROMPT --> MERGE
+    MERGE --> FINAL["Official English & Nepali Reports"]:::output
 ```
 
 ---
