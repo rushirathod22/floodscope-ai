@@ -79,3 +79,43 @@ class ReportResponse(BaseModel):
     structured_metrics: Dict[str, Any]
     uncertainties_and_limitations: List[str]
     citations: List[str]
+
+class TracePathRequest(BaseModel):
+    start_lat: float = Field(default=28.192, description="Upstream hazard / glacial lake latitude")
+    start_lon: float = Field(default=85.352, description="Upstream hazard / glacial lake longitude")
+    wave_velocity_ms: Optional[float] = Field(default=14.0, description="Estimated flood wave velocity in m/s")
+
+class TracePathResult(BaseModel):
+    start_point: Dict[str, Any]
+    end_point: Dict[str, Any]
+    total_path_length_km: float
+    total_vertical_drop_m: float
+    flow_path_geojson: Dict[str, Any]
+    elevation_profile: List[Dict[str, Any]]
+    settlements_at_risk: List[Dict[str, Any]]
+
+class EMSR927ValidationResult(BaseModel):
+    activation_id: str
+    event_title: str
+    reference_source: str
+    detected_area_ha: float
+    emsr927_reference_ha: float
+    intersection_ha: float
+    false_positive_ha: float
+    false_negative_ha: float
+    metrics: Dict[str, float]
+    scientific_notes: List[str]
+    attribution: str
+    comparison_geojson: Dict[str, Any]
+
+class CopilotChatRequest(BaseModel):
+    analysis_id: str = Field(default="latest")
+    question: str
+    language: str = Field(default="en")
+
+class CopilotChatResponse(BaseModel):
+    question: str
+    language: str
+    answer: str
+    grounded_metrics: Dict[str, Any]
+    recommended_actions: List[str]

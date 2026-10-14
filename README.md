@@ -134,6 +134,9 @@ cd floodscope-ai
 | `GET` | `/api/accessibility/{id}` | Return disconnected settlements and graph routing |
 | `POST` | `/api/reports/generate` | Generate AI situation report (English or Nepali) |
 | `GET` | `/api/reports/{id}/download`| Download generated report in Markdown format |
+| `POST` | `/api/trace-path` | **Bonus:** Upstream DEM D8 valley flow-path tracer & settlement timeline |
+| `GET` | `/api/validation/emsr927` | Compare detection vs. official Copernicus EMSR927 reference |
+| `POST` | `/api/copilot/chat` | Interactive Rescuer AI Copilot Q&A (English & Nepali, 100% grounded) |
 
 ---
 

@@ -90,6 +90,53 @@ export interface ReportResponse {
   citations: string[];
 }
 
+export interface TracePathResult {
+  start_point: { lat: number; lon: number; elevation_m: number };
+  end_point: { lat: number; lon: number; elevation_m: number };
+  total_path_length_km: number;
+  total_vertical_drop_m: number;
+  flow_path_geojson: any;
+  elevation_profile: Array<{ step: number; distance_km: number; elevation_m: number; lat: number; lon: number }>;
+  settlements_at_risk: Array<{
+    id: string;
+    name: string;
+    population: number;
+    distance_downstream_km: number;
+    est_arrival_minutes: number;
+    risk_level: string;
+    lat: number;
+    lon: number;
+  }>;
+}
+
+export interface EMSR927ValidationResult {
+  activation_id: string;
+  event_title: string;
+  reference_source: string;
+  detected_area_ha: number;
+  emsr927_reference_ha: number;
+  intersection_ha: number;
+  false_positive_ha: number;
+  false_negative_ha: number;
+  metrics: {
+    iou_jaccard: number;
+    precision: number;
+    recall: number;
+    f1_score: number;
+  };
+  scientific_notes: string[];
+  attribution: string;
+  comparison_geojson: any;
+}
+
+export interface CopilotChatResponse {
+  question: string;
+  language: string;
+  answer: string;
+  grounded_metrics: any;
+  recommended_actions: string[];
+}
+
 const API_BASE = '/api';
 
 export const api = {
@@ -142,5 +189,31 @@ export const api = {
 
   getReportDownloadUrl(reportId: string): string {
     return `${API_BASE}/reports/${reportId}/download`;
+  },
+
+  async tracePath(startLat: number = 28.192, startLon: number = 85.352, waveVelocityMs: number = 14.0): Promise<TracePathResult> {
+    const res = await fetch(`${API_BASE}/trace-path`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ start_lat: startLat, start_lon: startLon, wave_velocity_ms: waveVelocityMs }),
+    });
+    if (!res.ok) throw new Error('Failed to trace flow path');
+    return res.json();
+  },
+
+  async getEMSR927Validation(analysisId: string = 'latest'): Promise<EMSR927ValidationResult> {
+    const res = await fetch(`${API_BASE}/validation/emsr927?analysis_id=${analysisId}`);
+    if (!res.ok) throw new Error('Failed to fetch EMSR927 validation');
+    return res.json();
+  },
+
+  async copilotChat(question: string, language: 'en' | 'ne' = 'en', analysisId: string = 'latest'): Promise<CopilotChatResponse> {
+    const res = await fetch(`${API_BASE}/copilot/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ analysis_id: analysisId, question, language }),
+    });
+    if (!res.ok) throw new Error('Failed to send copilot query');
+    return res.json();
   },
 };

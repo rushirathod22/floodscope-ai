@@ -20,13 +20,20 @@ from backend.app.schemas.analysis import (
     InfrastructureStats,
     AccessibilityResults,
     ReportGenerateRequest,
-    ReportResponse
+    ReportResponse,
+    TracePathRequest,
+    TracePathResult,
+    EMSR927ValidationResult,
+    CopilotChatRequest,
+    CopilotChatResponse
 )
 from backend.app.services.satellite import validate_sentinel1_pair
 from backend.app.services.flood_detection import detect_flood_extent, export_flood_geotiff, export_flood_geojson
 from backend.app.services.infrastructure import analyze_infrastructure, export_infrastructure_geojson
 from backend.app.services.accessibility import analyze_accessibility, export_accessibility_geojson
-from backend.app.services.reports import generate_situation_report
+from backend.app.services.reports import generate_situation_report, answer_rescuer_query
+from backend.app.services.flow_tracer import trace_downhill_flow_path
+from backend.app.services.emsr927_validation import run_emsr927_comparison
 
 router = APIRouter()
 
@@ -278,3 +285,72 @@ def download_report(report_id: str):
         media_type="text/markdown",
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
+
+@router.post("/trace-path", response_model=TracePathResult)
+def trace_path(req: TracePathRequest):
+    """
+    Bonus Feature: Upstream DEM Valley Flow-Path Tracer.
+    Traces the downhill flood / debris flow path from an upstream point and identifies
+    settlements in the path with wave arrival time estimates.
+    """
+    dem_path = os.path.join(SAMPLE_DIR, "copernicus_dem_rasuwa.tif")
+    settlements_path = os.path.join(SAMPLE_DIR, "osm_settlements_pre_event.geojson")
+
+    try:
+        result = trace_downhill_flow_path(
+            dem_path=dem_path,
+            settlements_path=settlements_path,
+            start_lat=req.start_lat,
+            start_lon=req.start_lon,
+            wave_velocity_ms=req.wave_velocity_ms or 14.0
+        )
+        return TracePathResult(**result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Flow path tracing failed: {str(e)}")
+
+@router.get("/validation/emsr927", response_model=EMSR927ValidationResult)
+def validate_against_emsr927(analysis_id: str = "latest"):
+    """
+    Case Study & Benchmark: Compares FloodScope SAR automated detection with
+    the official Copernicus EMS EMSR927 reference delineation.
+    Strictly post-hoc validation; EMSR927 is never used as input.
+    """
+    if analysis_id not in ANALYSIS_STORE:
+        if analysis_id == "latest" and ANALYSIS_STORE:
+            analysis_id = list(ANALYSIS_STORE.keys())[-1]
+        else:
+            raise HTTPException(status_code=404, detail="Analysis ID not found.")
+
+    flood_gdf = ANALYSIS_STORE[analysis_id]["flood_gdf"]
+
+    try:
+        res = run_emsr927_comparison(flood_gdf=flood_gdf, sample_dir=SAMPLE_DIR)
+        return EMSR927ValidationResult(**res)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"EMSR927 validation error: {str(e)}")
+
+@router.post("/copilot/chat", response_model=CopilotChatResponse)
+def copilot_chat(req: CopilotChatRequest):
+    """
+    AI Situation-Report Copilot: Answers rescuers' tactical questions
+    in English or Nepali with 100% deterministic grounding from calculated maps.
+    """
+    analysis_id = req.analysis_id
+    if analysis_id not in ANALYSIS_STORE:
+        if analysis_id == "latest" and ANALYSIS_STORE:
+            analysis_id = list(ANALYSIS_STORE.keys())[-1]
+        else:
+            raise HTTPException(status_code=404, detail="Analysis ID not found.")
+
+    sess = ANALYSIS_STORE[analysis_id]["status"]
+    metrics_bundle = {
+        "analysis_id": analysis_id,
+        "area_name": sess.area_name,
+        "data_source_mode": sess.data_source_mode,
+        "summary": sess.summary.model_dump(),
+        "infrastructure": sess.infrastructure.model_dump(),
+        "accessibility": sess.accessibility.model_dump()
+    }
+
+    resp = answer_rescuer_query(metrics_bundle, question=req.question, language=req.language)
+    return CopilotChatResponse(**resp)

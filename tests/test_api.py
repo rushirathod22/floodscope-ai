@@ -77,6 +77,42 @@ def test_api_endpoints():
         assert res_bad.status_code == 400
         assert "Sentinel-1 Validation Error" in res_bad.json()["detail"]
 
+        # 10. Test Upstream Valley Flow-Path Tracer (Bonus)
+        res_trace = client.post("/api/trace-path", json={"start_lat": 28.192, "start_lon": 85.352})
+        assert res_trace.status_code == 200
+        trace_data = res_trace.json()
+        assert trace_data["total_path_length_km"] > 0
+        assert "flow_path_geojson" in trace_data
+        assert len(trace_data["settlements_at_risk"]) > 0
+
+        # 11. Test Copernicus EMSR927 Reference Comparison
+        res_val = client.get(f"/api/validation/emsr927?analysis_id={analysis_id}")
+        assert res_val.status_code == 200
+        val_data = res_val.json()
+        assert val_data["activation_id"] == "EMSR927"
+        assert val_data["metrics"]["f1_score"] > 0
+        assert "comparison_geojson" in val_data
+
+        # 12. Test AI Copilot Tactical Chat (English & Nepali)
+        res_chat_en = client.post("/api/copilot/chat", json={
+            "analysis_id": analysis_id,
+            "question": "Which settlements are completely cut off from road access?",
+            "language": "en"
+        })
+        assert res_chat_en.status_code == 200
+        chat_en_data = res_chat_en.json()
+        assert "isolated_settlements" in chat_en_data["grounded_metrics"]
+        assert len(chat_en_data["recommended_actions"]) > 0
+
+        res_chat_ne = client.post("/api/copilot/chat", json={
+            "analysis_id": analysis_id,
+            "question": "कुन कुन बस्तीहरू सम्पर्कविहीन छन्?",
+            "language": "ne"
+        })
+        assert res_chat_ne.status_code == 200
+        chat_ne_data = res_chat_ne.json()
+        assert chat_ne_data["language"] == "ne"
+
         print("All API endpoints and validation constraints tested and passed!")
 
 if __name__ == "__main__":

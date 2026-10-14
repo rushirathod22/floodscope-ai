@@ -142,14 +142,24 @@ export const SituationReportPanel: React.FC<SituationReportPanelProps> = ({
 
           <div className="flex items-center gap-3">
             {report && (
-              <a
-                href={api.getReportDownloadUrl(report.report_id)}
-                download
-                className="flex items-center gap-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-semibold shadow-md shadow-cyan-600/20 transition"
-              >
-                <Download className="w-4 h-4" />
-                <span>Download Report (.md)</span>
-              </a>
+              <>
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold border border-slate-700 transition"
+                  title="Print or Save as 1-Page PDF"
+                >
+                  <span>🖨️ Print 1-Page SitRep</span>
+                </button>
+                <a
+                  href={api.getReportDownloadUrl(report.report_id)}
+                  download
+                  className="flex items-center gap-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-xs font-semibold shadow-md shadow-cyan-600/20 transition"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Download (.md)</span>
+                </a>
+              </>
             )}
             <button
               onClick={onClose}
