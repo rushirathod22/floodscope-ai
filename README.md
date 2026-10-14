@@ -60,7 +60,7 @@ flowchart TD
     %% Styling
     classDef input fill:#1e293b,stroke:#3b82f6,stroke-width:2px,color:#f8fafc;
     classDef process fill:#0f172a,stroke:#06b6d4,stroke-width:2px,color:#f8fafc;
-    classDef graph fill:#0f172a,stroke:#f59e0b,stroke-width:2px,color:#f8fafc;
+    classDef network fill:#0f172a,stroke:#f59e0b,stroke-width:2px,color:#f8fafc;
     classDef ai fill:#0f172a,stroke:#a855f7,stroke-width:2px,color:#f8fafc;
     classDef ui fill:#0f172a,stroke:#10b981,stroke-width:2px,color:#f8fafc;
 
@@ -81,15 +81,15 @@ flowchart TD
     end
 
     subgraph NetworkEngine ["🕸️ 3. Topological Graph & Exposure Engine (NetworkX)"]
-        OSM -->|"Buildings, Roads, Bridges"| INTER["Spatial Overlay Engine<br/>Candidate Disruption Intersect"]:::graph
+        OSM -->|"Buildings, Roads, Bridges"| INTER["Spatial Overlay Engine<br/>Candidate Disruption Intersect"]:::network
         FLOOD --> INTER
-        INTER -->|"Exposed Infrastructure"| EXP["18 Buildings • 8.4 km Roads • 2 Bridges"]:::graph
+        INTER -->|"Exposed Infrastructure"| EXP["18 Buildings • 8.4 km Roads • 2 Bridges"]:::network
         
-        OSM -->|"Baseline Road Network"| NX["Directed NetworkX Road Graph G(V,E)"]:::graph
-        FLOOD -->|"Sever Inundated Edges"| PRUNE["Pruned Graph G'(V, E')"]:::graph
+        OSM -->|"Baseline Road Network"| NX["Directed NetworkX Road Graph G(V,E)"]:::network
+        FLOOD -->|"Sever Inundated Edges"| PRUNE["Pruned Graph G'(V, E')"]:::network
         NX --> PRUNE
-        PRUNE --> DIJK["Dijkstra Reachability to Clinics<br/>(Dhunche Hospital & Syabru Post)"]:::graph
-        DIJK --> ISOLATED["Candidate Disconnected Towns<br/>(Timure & Briddhim Flagged)"]:::graph
+        PRUNE --> DIJK["Dijkstra Reachability to Clinics<br/>(Dhunche Hospital & Syabru Post)"]:::network
+        DIJK --> ISOLATED["Candidate Disconnected Towns<br/>(Timure & Briddhim Flagged)"]:::network
     end
 
     subgraph AIEngine ["🤖 4. Zero-Hallucination Bilingual AI Copilot"]
